@@ -35,9 +35,16 @@ namespace RayTracing
             ImGui.CreateContext();
             var io = ImGui.GetIO();
             io.ConfigFlags |= ImGuiConfigFlags.NavEnableKeyboard;
+            io.ConfigFlags |= ImGuiConfigFlags.ViewportsEnable;
             io.BackendFlags |= ImGuiBackendFlags.RendererHasVtxOffset;
 
             ImGui.StyleColorsDark();
+            if ((io.ConfigFlags & ImGuiConfigFlags.ViewportsEnable) != 0)
+            {
+                var style = ImGui.GetStyle();
+                style.WindowRounding = 0.0f;
+                style.Colors[(int)ImGuiCol.WindowBg].W = 1.0f;
+            }
 
             SetKeyMappings();
             CreateDeviceResources();
@@ -67,6 +74,13 @@ namespace RayTracing
             _frameBegun = false;
             ImGui.Render();
             RenderImDrawData(ImGui.GetDrawData());
+
+            var io = ImGui.GetIO();
+            if ((io.ConfigFlags & ImGuiConfigFlags.ViewportsEnable) != 0)
+            {
+                ImGui.UpdatePlatformWindows();
+                ImGui.RenderPlatformWindowsDefault();
+            }
         }
 
         public void Dispose()
@@ -128,7 +142,7 @@ namespace RayTracing
             float mouseX = scaleX != 0f ? mouse.X / scaleX : mouse.X;
             float mouseY = scaleY != 0f ? mouse.Y / scaleY : mouse.Y;
 
-            io.AddMousePosEvent(mouseX, mouseY + 50f);
+            io.AddMousePosEvent(mouseX, mouseY);
             io.AddMouseButtonEvent(0, mouse.IsButtonDown(MouseButton.Left));
             io.AddMouseButtonEvent(1, mouse.IsButtonDown(MouseButton.Right));
             io.AddMouseButtonEvent(2, mouse.IsButtonDown(MouseButton.Middle));
@@ -147,6 +161,8 @@ namespace RayTracing
         {
             return ImGui.GetIO().WantCaptureMouse;
         }
+
+        public bool WantsMouseCapture => ImGui.GetIO().WantCaptureMouse;
 
         private void CreateDeviceResources()
         {

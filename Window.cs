@@ -82,7 +82,7 @@ namespace RayTracing
             base.OnMouseDown(e);
 
             // Click to recapture
-            if (!MouseCaptured && e.Button == MouseButton.Left)
+            if (!MouseCaptured && e.Button == MouseButton.Left && !(Engine?.IsImGuiMouseCaptured ?? false))
                 CaptureMouse(true);
         }
 

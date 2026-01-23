@@ -54,6 +54,7 @@ namespace RayTracing
 
         // camera
         private Vector3 _camPos = new(0f, 1.2f, -5.5f);
+        private System.Numerics.Vector3 camPos = new(0f, 1.2f, -5.5f);
         private float _yaw = 79.2f;
         private float _pitch = 9.6f;
         private Vector3 _camForward;
@@ -120,6 +121,7 @@ namespace RayTracing
         }
 
         private bool IsMainThread => Environment.CurrentManagedThreadId == _mainThreadId;
+        public bool IsImGuiMouseCaptured => _imgui?.WantsMouseCapture ?? false;
 
         public void PumpMainThreadActions(int maxActions = 64)
         {
@@ -234,14 +236,6 @@ namespace RayTracing
             float dt = now - oldTime;
             oldTime = now;
             _imguiDelta = dt;
-
-#pragma warning disable CS8629 // Nullable value type may be null.
-            bool inGuiWin = (bool)(_imgui?.MouseInGuiWin()) && _imgui.MouseInGuiWin();
-#pragma warning restore CS8629 // Nullable value type may be null.
-            if (_win.MouseState.IsButtonDown(MouseButton.Left) && !inGuiWin)
-                _win.CursorState = CursorState.Grabbed;
-            if (_win.KeyboardState.IsKeyDown(Keys.Escape))
-                _win.CursorState = CursorState.Normal;
 
             if (_win.KeyboardState.IsKeyDown(Keys.F11))
                 _needsReset = true;
@@ -369,16 +363,18 @@ namespace RayTracing
 
             if (_imgui != null)
             {
-                System.Numerics.Vector3 camPos = new(_camPos.X, _camPos.Y, _camPos.Z);
                 _imgui.Update(_win, _imguiDelta);
 
                 ImGui.Begin("Render");
                 ImGui.Text($"Frame: {_frame}");
                 ImGui.Checkbox("Accumulation", ref _accumalation);
-                ImGui.InputFloat3("Camera Position", ref camPos);
                 ImGui.End();
                 
-                _camPos = new(camPos.X, camPos.Y, camPos.Z);
+                ImGui.Begin("Camera Position");
+                ImGui.InputFloat("X", ref _camPos.X);
+                ImGui.InputFloat("Y", ref _camPos.Y);
+                ImGui.InputFloat("Z", ref _camPos.Z);
+                ImGui.End();
 
                 _imgui.Render();
             }
