@@ -1,0 +1,27 @@
+#version 430 core
+layout(local_size_x = 8, local_size_y = 8) in;
+
+// Input (HDR) size and output (window) size.
+// If uWinSize isn't set, it will fall back to uSize.
+uniform ivec2 uSize;
+uniform ivec2 uWinSize;
+
+// HDR input (sampled)
+layout(binding = 0) uniform sampler2D uTex;
+
+// LDR output (written)
+layout(rgba8, binding = 1) writeonly uniform image2D uOut;
+
+vec3 tonemap(vec3 col) { return col / (vec3(1.0) + col); }
+vec3 gamma(vec3 col) { return pow(col, vec3(0.454545455)); }
+
+void main()
+{
+    ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
+    if (pix.x >= uWinSize.x || pix.y >= uWinSize.y) return;
+
+    // Pixel center UV in output space
+    vec2 uv = (vec2(pix) + 0.5) / vec2(uWinSize);
+    imageStore(uOut, pix, vec4(gamma(tonemap(texture(uTex, uv).rgb)), 1.0));
+}
+

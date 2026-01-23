@@ -1,0 +1,685 @@
+#version 430 core
+layout(local_size_x = 8, local_size_y = 8) in;
+
+// output + previous accumulation (linear HDR)
+layout(rgba16f, binding = 0) readonly  uniform image2D uPrevAccum;
+layout(rgba16f, binding = 1) writeonly uniform image2D uOutAccum;
+
+uniform int  uFrame;
+uniform float uAperture;   // lens radius in WORLD units (try 0.02)
+uniform float uFocusDist;  // distance in WORLD units (try 10.0)
+uniform ivec2 uSize; // trace resolution
+
+uniform vec3 camForward;
+uniform vec3 camRight;
+uniform vec3 camUp;
+uniform vec3 viewParams;
+uniform vec3 camPos;
+
+uniform vec3  uSunDir;        // points *from* the scene *towards* the sun (normalized)
+uniform vec3  uSunColor;      // e.g. vec3(1.0, 0.98, 0.92)
+uniform float uSunIntensity;  // e.g. 5..50 (depends on your exposure/tonemap)
+uniform float uSunAngularRad; // e.g. 0.00465 ~= real sun (~0.27 degrees)
+struct Mat {
+    vec3  col;        float smoothness;
+    vec3  emi;        float emiStr;
+    float alpha;      float ior;
+    float absorb;     float _pad;
+};
+
+float c = 299792458;
+float u = 299702547;
+
+struct SphereGPU
+{
+    vec3 pos;
+    float rad;
+    Mat mat;
+};
+layout(std430, binding = 0) readonly buffer SpheresBlock
+{
+    SphereGPU sphs[];
+} Spheres;
+
+struct CubeGPU
+{
+    vec3 pos;
+    vec3 scale;
+    Mat mat;
+};
+layout(std430, binding = 1) readonly buffer CubesBlock
+{
+    CubeGPU boxes[];
+} Cubes;
+
+
+uniform int uNumCubes;
+uniform int uNumSpheres;
+
+// Triangles SSBO binding=1
+struct TriangleGPU
+{
+    vec4 V0;
+    vec4 V1;
+    vec4 V2;
+    vec4 ColSmo;
+    vec4 EmiEmi;
+    vec4 Alpha;
+};
+layout(std430, binding = 2) readonly buffer TrianglesBlock
+{
+    TriangleGPU tris[];
+} Triangles;
+
+uniform int uNumTris;
+
+// BVH SSBO binding=2
+struct BVHNodeGPU {
+    vec4 bmin;
+    vec4 bmax;
+    ivec4 meta; // x=left, y=right, z=firstTri, w=triCount
+};
+layout(std430, binding = 3) readonly buffer BVHBlock
+{
+    BVHNodeGPU nodes[];
+} BVH;
+
+uniform int uNumBvhNodes;
+
+// ---------- Types ----------
+
+struct Ray { vec3 o; vec3 d; };
+struct HitInfo { bool didHit; bool isBackFace; float t; vec3 p; vec3 n; Mat m; };
+
+
+// Safe Functions
+vec3 SafeNormalize(vec3 v)
+{
+    float ls = dot(v,v);
+    if (ls < 1e-20) return vec3(0,0,1);
+    return v * inversesqrt(ls);
+}
+
+float FresnelSchlick(float cosTheta, float etaI, float etaT)
+{
+    float r0 = (etaI - etaT) / (etaI + etaT);
+    r0 *= r0;
+    float m = clamp(1.0 - cosTheta, 0.0, 1.0);
+    return r0 + (1.0 - r0) * (m*m*m*m*m);
+}
+
+// Convert tint color to absorption coefficient using Beer–Lambert.
+// absorbStrength is "density per world unit".
+vec3 AbsorbS(vec3 tint, float absorbStrength)
+{
+    tint = clamp(tint, vec3(1e-3), vec3(0.999));
+    return -log(tint) * absorbStrength;
+}
+
+vec3 ApplyAbsorption(vec3 T, vec3 sA, float dist)
+{
+    return T * exp(-sA * dist);
+}
+
+// ---------- RNG ----------
+float Ran(inout uint s)
+{
+    s = s * 747796405u + 2891336453u;
+    uint r = ((s >> ((s >> 28) + 4u)) ^ s) * 277803737u;
+    r = (r >> 22) ^ r;
+    return float(r) / 4294967295.0;
+}
+float RanNorm(inout uint s)
+{
+    float theta = 6.28318530718 * Ran(s);
+    float u = max(1e-7, Ran(s));
+    float rho = sqrt(-2.0 * log(u));
+    return rho * cos(theta);
+}
+vec3 RanDir(inout uint s) { return normalize(vec3(RanNorm(s), RanNorm(s), RanNorm(s))); }
+
+// ---------- Refractions ----------
+float CalculateReflectance(vec3 inDir, vec3 normal, float iorA, float iorB)
+{
+    float refractRatio = iorA / iorB;
+    float cosAngleIn = dot(inDir, -normal);
+    if (cosAngleIn <= 0) return 1.0;
+
+    float sinSqrAngleOfRefraction = refractRatio * refractRatio * (1.0 - cosAngleIn * cosAngleIn);
+    if (sinSqrAngleOfRefraction >= 1.0) return 1.0;
+    float cosAngleOfRefraction = sqrt(1.0 - sinSqrAngleOfRefraction);
+
+    float denominatorPerpendicular = iorA * cosAngleIn + iorB * cosAngleOfRefraction;
+    float rPerpendicular = (iorA * cosAngleIn - iorB * cosAngleOfRefraction) / denominatorPerpendicular;
+    rPerpendicular *= rPerpendicular;
+
+    float denominatorParallel = iorA * cosAngleIn + iorB * cosAngleOfRefraction;
+    float rParallel = (iorB * cosAngleIn - iorA * cosAngleOfRefraction) / denominatorParallel;
+    rParallel *= rParallel;
+
+    return (rPerpendicular + rParallel) / 2.0;
+}
+
+HitInfo RayCube(Ray r, CubeGPU cube)
+{
+    float tmin = 0.0;
+    float tmax = 1e20;
+    vec3 bmin = cube.pos - (cube.scale / 2.0);
+    vec3 bmax = cube.pos + (cube.scale / 2.0);
+    
+    HitInfo h;
+    h.t = 1e20; h.didHit = false;
+    vec3 nEnter = vec3(0.0);
+    vec3 nExit = vec3(0.0);
+
+    // X
+    if (abs(r.d.x) < 1e-8)
+    {
+        if (r.o.x < bmin.x || r.o.x > bmax.x) return h;
+    }
+    else
+    {
+        float inv = 1.0 / r.d.x;
+        float t0 = (bmin.x - r.o.x) * inv;
+        float t1 = (bmax.x - r.o.x) * inv;
+        vec3 n0 = vec3(-1.0, 0.0, 0.0);
+        vec3 n1 = vec3( 1.0, 0.0, 0.0);
+        if (t0 > t1) { float tmp=t0; t0=t1; t1=tmp; vec3 nt=n0; n0=n1; n1=nt; }
+        if (t0 > tmin) { tmin = t0; nEnter = n0; }
+        if (t1 < tmax) { tmax = t1; nExit = n1; }
+        if (tmax < tmin) return h;
+    }
+
+    // Y
+    if (abs(r.d.y) < 1e-8)
+    {
+        if (r.o.y < bmin.y || r.o.y > bmax.y) return h;
+    }
+    else
+    {
+        float inv = 1.0 / r.d.y;
+        float t0 = (bmin.y - r.o.y) * inv;
+        float t1 = (bmax.y - r.o.y) * inv;
+        vec3 n0 = vec3(0.0, -1.0, 0.0);
+        vec3 n1 = vec3(0.0,  1.0, 0.0);
+        if (t0 > t1) { float tmp=t0; t0=t1; t1=tmp; vec3 nt=n0; n0=n1; n1=nt; }
+        if (t0 > tmin) { tmin = t0; nEnter = n0; }
+        if (t1 < tmax) { tmax = t1; nExit = n1; }
+        if (tmax < tmin) return h;
+    }
+
+    // Z
+    if (abs(r.d.z) < 1e-8)
+    {
+        if (r.o.z < bmin.z || r.o.z > bmax.z) return h;
+    }
+    else
+    {
+        float inv = 1.0 / r.d.z;
+        float t0 = (bmin.z - r.o.z) * inv;
+        float t1 = (bmax.z - r.o.z) * inv;
+        vec3 n0 = vec3(0.0, 0.0, -1.0);
+        vec3 n1 = vec3(0.0, 0.0,  1.0);
+        if (t0 > t1) { float tmp=t0; t0=t1; t1=tmp; vec3 nt=n0; n0=n1; n1=nt; }
+        if (t0 > tmin) { tmin = t0; nEnter = n0; }
+        if (t1 < tmax) { tmax = t1; nExit = n1; }
+        if (tmax < tmin) return h;
+    }
+
+    if (tmax <= 0.0) return h;
+
+    float tHit = (tmin > 0.0) ? tmin : tmax;
+    vec3 nHit = (tmin > 0.0) ? nEnter : nExit;
+
+    h.didHit = true;
+    h.t = tHit;
+    h.p = r.o + r.d * tHit;
+    h.n = nHit;
+    h.isBackFace = dot(r.d, h.n) > 0.0;
+    h.m = cube.mat;
+    return h;
+}
+
+// ---------- Sphere ----------
+HitInfo RaySphere(Ray r, SphereGPU sph)
+{
+    vec3 pos = sph.pos;
+    float rad = sph.rad;
+    Mat m = sph.mat;
+    HitInfo h; h.didHit = false; h.t = 0.0;
+
+    vec3 oc = r.o - pos;
+    float a = dot(r.d, r.d);
+    float b = 2.0 * dot(oc, r.d);
+    float c = dot(oc, oc) - rad * rad;
+
+    float disc = b*b - 4.0*a*c;
+    if (disc < 0.0 || a <= 0.0) return h;
+
+    float sd = sqrt(disc);
+    float t0 = (-b - sd) / (2.0*a);
+    float t1 = (-b + sd) / (2.0*a);
+
+    float t = (t0 > 0.0) ? t0 : t1;
+    if (t <= 0.0) return h;
+
+    h.didHit = true;
+    h.isBackFace = false;
+    h.t = t;
+    h.p = r.o + r.d * t;
+    h.n = normalize(h.p - pos);
+    h.m = m;
+    return h;
+}
+
+// ---------- Triangle: true two-sided Möller–Trumbore ----------
+HitInfo RayTriangle(Ray r, TriangleGPU tri, bool detectBackFace)
+{
+    HitInfo h; h.didHit = false; h.t = 0.0;
+
+    vec3 v0 = tri.V0.xyz;
+    vec3 v1 = tri.V1.xyz;
+    vec3 v2 = tri.V2.xyz;
+
+    vec3 e1 = v1 - v0;
+    vec3 e2 = v2 - v0;
+
+    vec3 pvec = cross(r.d, e2);
+    float det = dot(e1, pvec);
+
+    const float EPS = 1e-8;
+    if (detectBackFace ? abs(det) < EPS : det < EPS) return h;
+
+    float invDet = 1.0 / det;
+
+    vec3 tvec = r.o - v0;
+    float u = dot(tvec, pvec) * invDet;
+    if (u < 0.0 || u > 1.0) return h;
+
+    vec3 qvec = cross(tvec, e1);
+    float v = dot(r.d, qvec) * invDet;
+    if (v < 0.0 || (u + v) > 1.0) return h;
+
+    float t = dot(e2, qvec) * invDet;
+    if (t <= EPS) return h;
+
+    h.didHit = true;
+    h.t = t;
+    h.p = r.o + r.d * t;
+
+    vec3 geomN = cross(e1, e2);
+    float gl = dot(geomN, geomN);
+    if (gl < 1e-20)
+        geomN = vec3(0, 1, 0);
+    else
+        geomN *= inversesqrt(gl);
+
+    // Keep raw geometric normal; orientation is handled at shading time.
+    h.n = geomN;
+    h.isBackFace = det < 0.0;
+
+    h.m.col = tri.ColSmo.xyz;
+    h.m.smoothness = tri.ColSmo.w;
+    h.m.emi = tri.EmiEmi.xyz;
+    h.m.emiStr = tri.EmiEmi.w;
+    h.m.alpha  = clamp(tri.Alpha.x, 0.0, 1.0);
+    h.m.ior    = max(tri.Alpha.y, 1.0);
+    h.m.absorb = max(tri.Alpha.z, 0.0);
+
+    return h;
+}
+
+bool IntersectAABB(Ray r, vec3 bmin, vec3 bmax, float tMax)
+{
+    float tmin = 0.0;
+    float tmax = tMax;
+
+    // X
+    if (abs(r.d.x) < 1e-8)
+    {
+        if (r.o.x < bmin.x || r.o.x > bmax.x) return false;
+    }
+    else
+    {
+        float inv = 1.0 / r.d.x;
+        float t0 = (bmin.x - r.o.x) * inv;
+        float t1 = (bmax.x - r.o.x) * inv;
+        if (t0 > t1) { float tmp=t0; t0=t1; t1=tmp; }
+        tmin = max(tmin, t0);
+        tmax = min(tmax, t1);
+        if (tmax < tmin) return false;
+    }
+
+    // Y
+    if (abs(r.d.y) < 1e-8)
+    {
+        if (r.o.y < bmin.y || r.o.y > bmax.y) return false;
+    }
+    else
+    {
+        float inv = 1.0 / r.d.y;
+        float t0 = (bmin.y - r.o.y) * inv;
+        float t1 = (bmax.y - r.o.y) * inv;
+        if (t0 > t1) { float tmp=t0; t0=t1; t1=tmp; }
+        tmin = max(tmin, t0);
+        tmax = min(tmax, t1);
+        if (tmax < tmin) return false;
+    }
+
+    // Z
+    if (abs(r.d.z) < 1e-8)
+    {
+        if (r.o.z < bmin.z || r.o.z > bmax.z) return false;
+    }
+    else
+    {
+        float inv = 1.0 / r.d.z;
+        float t0 = (bmin.z - r.o.z) * inv;
+        float t1 = (bmax.z - r.o.z) * inv;
+        if (t0 > t1) { float tmp=t0; t0=t1; t1=tmp; }
+        tmin = max(tmin, t0);
+        tmax = min(tmax, t1);
+        if (tmax < tmin) return false;
+    }
+
+    return true;
+}
+
+// ---------- Scene ----------
+HitInfo RayScene(Ray r, bool detectBackFace, inout int tests)
+{
+    HitInfo best; best.didHit=false; best.t=1e20;
+
+    // spheres (keep linear if small)
+    int sn = uNumSpheres;
+    for (int i=0;i<sn;i++)
+    {
+        SphereGPU s = Spheres.sphs[i];
+        HitInfo h = RaySphere(r, s);
+        if (h.didHit && h.t < best.t) best = h;
+        tests++;
+    }
+
+    // boxres (keep linear if small)
+    int cn = uNumCubes;
+    for (int i=0;i<cn;i++)
+    {
+        CubeGPU c = Cubes.boxes[i];
+        HitInfo h = RayCube(r, c);
+        if (h.didHit && h.t < best.t) best = h;
+        tests++;
+    }
+
+    // triangles via BVH
+    int stack[64];
+    int sp = 0;
+    stack[sp++] = 0;
+
+    while (sp > 0)
+    {
+        int ni = stack[--sp];
+        if (ni < 0 || ni >= uNumBvhNodes) continue;
+
+        BVHNodeGPU n = BVH.nodes[ni];
+        if (!IntersectAABB(r, n.bmin.xyz, n.bmax.xyz, best.t)) continue;
+
+        int triCount = n.meta.w;
+        if (triCount > 0)
+        {
+            int first = n.meta.z;
+            for (int t = 0; t < triCount; t++)
+            {
+                HitInfo h = RayTriangle(r, Triangles.tris[first + t], detectBackFace);
+                tests++;
+                if (h.didHit && h.t < best.t) best = h;
+            }
+        }
+        else
+        {
+            int left  = n.meta.x;
+            int right = n.meta.y;
+
+            // push children (you can order by nearer AABB later)
+            if (sp < 63) stack[sp++] = left;
+            if (sp < 63) stack[sp++] = right;
+        }
+    }
+
+    return best;
+}
+
+float DotXYZ(vec3 a, vec3 b)
+{
+    float x = a.x * b.x;
+    float y = a.y * b.y;
+    float z = a.z * b.z;
+    return x + y + z;
+}
+
+vec3 lerpXYZ(vec3 a, vec3 b, float t)
+{
+    vec3 aTransformed = a * (1 - t);
+    vec3 bTransformed = b * t;
+    return aTransformed + bTransformed;
+}
+
+vec3 Environment(Ray r)
+{
+    float t = pow(smoothstep(0, 0.4, r.d.y), 0.35);
+    vec3 sky = lerpXYZ(vec3(0.6,0.8,1.0), vec3(0.1,0.2,0.4), t);
+
+    vec3 sunDir = -normalize(uSunDir); // uSunDir points from scene to sun
+    float cosAng = dot(r.d, sunDir);
+    float sun = smoothstep(cos(uSunAngularRad), 1.0, cosAng) * uSunIntensity;
+
+    return sky + sun * uSunColor;
+}
+
+/*
+float3 GetEnvironmentColour(Ray ray)
+            {
+                float t = pow(smoothstep(0, 0.4, ray.dir.y), 0.35);
+                float3 sky = lerp(float3(0.6,0.8,1.0), float3(0.1,0.2,0.4), t);
+                float sun = pow(max(0, dot(ray.dir, -normalize(float3(1,1,0)))), 200) * 3;
+                float a = smoothstep(-0.1, 0, ray.dir.y);
+                float sunMask = a >= 1;
+                return lerp(float3(0.2,0.1,0.8), sky, a) + sun * sunMask;
+            }*/
+
+// ---------- Path trace ----------
+vec3 Trace(Ray r, inout uint rng)
+{
+    vec3 L = vec3(0.0);
+    vec3 T = vec3(1.0);
+
+    // absorption state (only for glass; simple single-medium tracking)
+    bool inGlass = false;
+    vec3 sA = vec3(0.0);
+
+    const int MAX_BOUNCES = 8;
+
+    for (int bounce = 0; bounce < MAX_BOUNCES; bounce++)
+    {
+        int tests = 0;
+        HitInfo hit = RayScene(r, false, tests);
+
+        if (!hit.didHit)
+        {
+            L += Environment(r) * T;
+            break;
+        }
+
+        // apply absorption for the distance traveled since last event
+        if (inGlass)
+            T = ApplyAbsorption(T, sA, hit.t);
+
+        // thin alpha-cutout (NOT glass): randomly pass through
+        // (leaves, decals, etc)
+        float opacity = clamp(hit.m.alpha, 0.0, 1.0);
+        bool isGlass = (hit.m.ior > 1.01);
+
+        if (!isGlass && opacity < 1.0)
+        {
+            if (Ran(rng) > opacity)
+            {
+                r.o = hit.p + r.d * 1e-4; // continue straight
+                continue;
+            }
+        }
+
+        // emissive (still works for all)
+        if (hit.m.emiStr > 0.0)
+            L += hit.m.emi * hit.m.emiStr * T;
+
+        if (isGlass)
+        {
+            // --- Dielectric (glass): reflect or refract ---
+            float ior = hit.m.ior;
+
+            // Ensure normal faces against incoming ray
+            bool frontFace = dot(r.d, hit.n) < 0.0;
+            vec3 N = frontFace ? hit.n : -hit.n;
+
+            float etaI = frontFace ? 1.0 : ior;
+            float etaT = frontFace ? ior : 1.0;
+            float eta  = etaI / etaT;
+
+            float cosTheta = clamp(dot(-r.d, N), 0.0, 1.0);
+            float sin2 = max(0.0, 1.0 - cosTheta*cosTheta);
+
+            bool tir = (eta*eta*sin2) > 1.0;
+
+            float F = tir ? 1.0 : FresnelSchlick(cosTheta, etaI, etaT);
+
+            // choose reflect vs refract
+            bool chooseReflect = (Ran(rng) < F);
+
+            vec3 newDir;
+            if (chooseReflect || tir)
+            {
+                newDir = reflect(r.d, N);
+            }
+            else
+            {
+                newDir = refract(r.d, N, eta);
+                // tint applies mostly on transmission
+                // (simple: multiply throughput once per refraction event)
+                T *= hit.m.col;
+
+                // update absorption medium state
+                if (frontFace)
+                {
+                    inGlass = true;
+                    sA = AbsorbS(hit.m.col, max(hit.m.absorb, 0.0));
+                }
+                else
+                {
+                    inGlass = false;
+                    sA = vec3(0.0);
+                }
+            }
+
+            // frosted glass using smoothness (0=very rough, 1=perfect)
+            float rough = 1.0 - clamp(hit.m.smoothness, 0.0, 1.0);
+            if (rough > 0.0)
+            {
+                // small random lobe around direction
+                newDir = SafeNormalize(newDir + RanDir(rng) * (rough * 0.35));
+            }
+
+            r.o = hit.p + newDir * 1e-4;
+            r.d = SafeNormalize(newDir);
+            continue;
+        }
+
+        // --- Opaque shading (diffuse/spec mix) ---
+        vec3 N = (dot(r.d, hit.n) < 0.0) ? hit.n : -hit.n;
+        float smoothness = clamp(hit.m.smoothness, 0.0, 1.0);
+        vec3 diffuse = SafeNormalize(N + RanDir(rng));
+        vec3 refl = reflect(r.d, N);
+
+        r.o = hit.p + N * 1e-4;
+        r.d = SafeNormalize(mix(diffuse, refl, smoothness));
+
+        T *= hit.m.col;
+    }
+
+    return L;
+}
+
+const float PI = 3.1415;
+
+vec2 RanPointCircle(inout uint state)
+{
+    float angle = Ran(state) * 2 * PI;
+    vec2 POC = vec2(cos(angle), sin(angle));
+    return POC * sqrt(Ran(state));
+}
+
+void main()
+{
+    ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
+    if (pix.x >= uSize.x || pix.y >= uSize.y) return;
+
+    uint rng = uint(pix.x) * 1973u + uint(pix.y) * 9277u + 89173u + uint(uFrame) * 26699u;
+
+    // jittered 1 spp per frame
+    vec2 res = vec2(uSize);
+    vec2 uv = vec2(pix) / res;
+
+    vec4 c0 = vec4(camRight, 0.0);
+    vec4 c1 = vec4(camUp, 0.0);
+    vec4 c2 = vec4(camForward, 0.0);
+    vec4 c3 = vec4(camPos, 1.0);
+    mat4 camLocalToWorldMatrix = mat4(c0, c1, c2, c3);
+    vec3 viewPointLocal = vec3(uv - 0.5, 1.0) * viewParams;
+    vec3 viewPoint = (camLocalToWorldMatrix * vec4(viewPointLocal, 1.0)).xyz;
+
+    vec3 cur = vec3(0.0);
+    for (int i = 0; i < 1; i++)
+    {
+        // --- pixel jitter (antialiasing) ---
+        vec2 jitter = (vec2(Ran(rng), Ran(rng)) - 0.5) / vec2(uSize);
+        vec2 uvJ = uv + jitter;
+
+        // scale only XY by viewParams.xy, keep z = 1
+        vec3 viewPointLocalJ = vec3((uvJ - 0.5) * viewParams.xy, 1.0);
+        vec3 viewPointJ = (camLocalToWorldMatrix * vec4(viewPointLocalJ, 1.0)).xyz;
+
+        vec3 pinDir = normalize(viewPointJ - camPos);
+
+        float focusDist = max(uFocusDist, 1e-3);     // prevent 0
+        float aperture  = max(uAperture, 0.0);       // prevent negatives
+
+        vec3 focusPoint = camPos + pinDir * focusDist;
+
+        vec2 disk = RanPointCircle(rng) * aperture;
+        Ray r;
+        r.o = camPos + camRight * disk.x + camUp * disk.y;
+
+        vec3 dir = focusPoint - r.o;
+        if (dot(dir,dir) < 1e-20) dir = pinDir;      // avoid normalize(0)
+        r.d = SafeNormalize(dir);
+
+        cur += Trace(r, rng);
+    }
+    cur /= 1.0;
+
+    vec3 prev = imageLoad(uPrevAccum, pix).rgb;
+
+    if (uFrame != 0)
+    {
+        float k = float(uFrame);
+        cur = (prev * k + cur) / (k + 1.0);
+    }
+
+    if (uNumBvhNodes == 0) {
+        // paint bright pink so you KNOW this is the issue
+        imageStore(uOutAccum, pix, vec4(10,0,10,1));
+        return;
+    }
+
+    imageStore(uOutAccum, pix, vec4(cur, 1.0));
+}
+
+
