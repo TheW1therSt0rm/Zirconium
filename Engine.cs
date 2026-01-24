@@ -240,7 +240,7 @@ namespace RayTracing
             if (_imgui != null)
             {
                 _imgui.Update(_win, _imguiDelta);
-                if (_imgui.WantsMouseCapture && _win.MouseCaptured)
+                if (_imgui.WantsMouseCapture && !_win.MouseCaptured)
                     _win.SetMouseCapture(false);
             }
 
@@ -299,6 +299,7 @@ namespace RayTracing
         public void Render()
         {
             if (_needsReset) ResetAccumulation();
+            GL.Clear(ClearBufferMask.ColorBufferBit);
 
             int w = _renderWidth;
             int h = _renderHeight;
@@ -356,18 +357,6 @@ namespace RayTracing
             GL.DispatchCompute((outW + 7) / 8, (outH + 7) / 8, 1);
             GL.MemoryBarrier(MemoryBarrierFlags.ShaderImageAccessBarrierBit | MemoryBarrierFlags.FramebufferBarrierBit);
 
-            // PASS 3: blit _ldrTex -> default framebuffer
-            GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, _ldrFbo);
-            GL.ReadBuffer(ReadBufferMode.ColorAttachment0);
-
-            GL.BindFramebuffer(FramebufferTarget.DrawFramebuffer, 0);
-            GL.BlitFramebuffer(
-                0, 0, outW, outH,
-                0, 0, outW, outH,
-                ClearBufferMask.ColorBufferBit,
-                BlitFramebufferFilter.Nearest
-            );
-
             if (_imgui != null)
             {
                 Vector3 camPos = _camPos;
@@ -384,6 +373,20 @@ namespace RayTracing
                 ImGui.DragFloat("Z", ref _camPos.Z, 0.01f);
                 ImGui.DragFloat("yaw", ref _yaw, 0.01f);
                 ImGui.DragFloat("pitch", ref _pitch, 0.01f, -89.999f, 89.999f);
+                ImGui.End();
+
+                ImGui.Begin("Viewport");
+
+                var avail = ImGui.GetContentRegionAvail();
+                if (avail.X > 0 && avail.Y > 0)
+                {
+                    float ratio = avail.X / outW / (avail.Y / outH);
+                    bool decision = ratio <= 1.0;
+                    avail *= new System.Numerics.Vector2(decision ? 1.0f : 1.0f / ratio, decision ? ratio : 1.0f);
+                    // ImGui expects UVs top-left; OpenGL texture is bottom-left.
+                    ImGui.Image(_ldrTex, avail, new System.Numerics.Vector2(0, 1), new System.Numerics.Vector2(1, 0));
+                }
+
                 ImGui.End();
                 _needsReset = camPos != _camPos || pitch != _pitch || yaw != _yaw;
 
