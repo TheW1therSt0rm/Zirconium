@@ -221,6 +221,7 @@ namespace RayTracing
 
         public bool WantsMouseCapture => ImGui.GetIO().WantCaptureMouse;
         public bool MouseInGuiWin() => ImGui.GetIO().WantCaptureMouse;
+        public bool FrameBegun => _frameBegun;
 
         private void CreateDeviceResources()
         {

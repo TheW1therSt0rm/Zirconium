@@ -357,7 +357,7 @@ namespace RayTracing
             GL.DispatchCompute((outW + 7) / 8, (outH + 7) / 8, 1);
             GL.MemoryBarrier(MemoryBarrierFlags.ShaderImageAccessBarrierBit | MemoryBarrierFlags.FramebufferBarrierBit);
 
-            if (_imgui != null)
+            if (_imgui != null && _imgui.FrameBegun)
             {
                 Vector3 camPos = _camPos;
                 float pitch = _pitch;
