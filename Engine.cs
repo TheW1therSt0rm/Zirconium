@@ -42,10 +42,11 @@ namespace RayTracing
         private int _numBvhNodes;
 
         private float oldTime = 0f;
+        private float dt = 1f;
         private Stopwatch clock = new();
 
         // CPU-side accumulated triangle list so multiple UploadMesh() calls append.
-        private readonly List<TriangleGPU> _allTrisGpu = new();
+        private readonly List<TriangleGPU> _allTrisGpu = [];
 
         // progressive accumulation
         private int _frame;
@@ -78,8 +79,6 @@ namespace RayTracing
         private static readonly int TriangleGpuSize = Marshal.SizeOf<TriangleGPU>();
         private static readonly int BvhNodeGpuSize = Marshal.SizeOf<BVHNodeGPU>();
 
-        private List<Thread> threads = [];
-
         private const float MoveSpeed = 6f;
         private const float MouseSens = 0.12f;
         private const float FovDeg = 60f;
@@ -97,50 +96,25 @@ namespace RayTracing
             _win = win;_win.TextInput += e => _imgui?.AddInputCharacter((uint)e.Unicode);
             _mainThreadId = Environment.CurrentManagedThreadId;
             ThreadStart threadStarter1 = new(Init);
-            threads.Add(new Thread(threadStarter1));
+            ThreadManager.Add(threadStarter1, "Init");
             ThreadStart threadStarter2 = new(Update);
-            threads.Add(new Thread(threadStarter2));
+            ThreadManager.Add(threadStarter2, "Update");
             ThreadStart threadStarter3 = new(Render);
-            threads.Add(new Thread(threadStarter3));
+            ThreadManager.Add(threadStarter3, "Render");
             ThreadStart threadStarter4 = new(ClearMeshes);
-            threads.Add(new Thread(threadStarter4));
+            ThreadManager.Add(threadStarter4, "ClearMeshes");
             ThreadStart threadStarter5 = new(Cleanup);
-            threads.Add(new Thread(threadStarter5));
+            ThreadManager.Add(threadStarter5, "Cleanup");
             ThreadStart threadStarter6 = new(UploadAllMeshesToGpu);
-            threads.Add(new Thread(threadStarter6));
+            ThreadManager.Add(threadStarter6, "UploadAllMeshesToGpu");
             ThreadStart threadStarter7 = new(UploadSpheres);
-            threads.Add(new Thread(threadStarter7));
+            ThreadManager.Add(threadStarter7, "UploadSpheres");
             ThreadStart threadStarter8 = new(UploadCubes);
-            threads.Add(new Thread(threadStarter8));
-        }
-
-        public void EnqueueMainThread(Action action)
-        {
-            if (action == null) return;
-            _mainThreadActions.Enqueue(action);
+            ThreadManager.Add(threadStarter8, "UploadCubes");
         }
 
         private bool IsMainThread => Environment.CurrentManagedThreadId == _mainThreadId;
         public bool IsImGuiMouseCaptured => _imgui?.WantsMouseCapture ?? false;
-
-        public void PumpMainThreadActions(int maxActions = 64)
-        {
-            // Drain up to maxActions to avoid long stalls in one frame
-            int count = 0;
-            while (count < maxActions && _mainThreadActions.TryDequeue(out var action))
-            {
-                try
-                {
-                    action();
-                }
-                catch (Exception ex)
-                {
-                    // Log or handle; don't kill the render loop.
-                    Console.WriteLine(ex);
-                }
-                count++;
-            }
-        }
 
         public void Init()
         {
@@ -233,7 +207,7 @@ namespace RayTracing
         public void Update()
         {
             float now = (float)clock.Elapsed.TotalSeconds;
-            float dt = now - oldTime;
+            dt = now - oldTime;
             oldTime = now;
             _imguiDelta = dt;
 
@@ -287,12 +261,6 @@ namespace RayTracing
             {
                 _camPos += wish.Normalized() * speed * dt;
                 _needsReset = true;
-            }
-
-            if (now - _lastTitleUpdate >= TitleUpdateInterval)
-            {
-                _win.Title = $"RayTracing | FPS: {(dt > 0 ? (1f / dt) : 9999f):0.0}";
-                _lastTitleUpdate = now;
             }
         }
 
@@ -363,6 +331,8 @@ namespace RayTracing
                 float pitch = _pitch;
                 float yaw = _yaw;
                 ImGui.Begin("Render");
+                ImGui.Text($"FPS: {1f / dt}");
+                ImGui.Text($"FMS: {1000f * dt}");
                 ImGui.Text($"Frame: {_frame}");
                 ImGui.Checkbox("Accumulation", ref _accumalation);
                 ImGui.End();
@@ -423,7 +393,7 @@ namespace RayTracing
         {
             if (!IsMainThread)
             {
-                EnqueueMainThread(() => UploadMesh(triGpu));
+                ThreadManager.EnqueueMainThread(() => UploadMesh(triGpu));
                 return;
             }
 
@@ -438,7 +408,7 @@ namespace RayTracing
         {
             if (!IsMainThread)
             {
-                EnqueueMainThread(ClearMeshes);
+                ThreadManager.EnqueueMainThread(ClearMeshes);
                 return;
             }
 
@@ -450,7 +420,7 @@ namespace RayTracing
         {
             if (!IsMainThread)
             {
-                EnqueueMainThread(() => SetMeshes(triGpu));
+                ThreadManager.EnqueueMainThread(() => SetMeshes(triGpu));
                 return;
             }
 
@@ -719,7 +689,7 @@ namespace RayTracing
         {
             if (!IsMainThread)
             {
-                EnqueueMainThread(UploadSpheres);
+                ThreadManager.EnqueueMainThread(UploadSpheres);
                 return;
             }
 
@@ -761,7 +731,7 @@ namespace RayTracing
         {
             if (!IsMainThread)
             {
-                EnqueueMainThread(UploadCubes);
+                ThreadManager.EnqueueMainThread(UploadCubes);
                 return;
             }
 
@@ -797,7 +767,7 @@ namespace RayTracing
             {
                 ObjLoader.Load(out List<TriangleGPU> tris, path, position, rotation, size, colour, smoothness, emission, emissionStrength, alpha);
                 var triArray = tris.ToArray();
-                EnqueueMainThread(() => UploadMesh(triArray));
+                ThreadManager.EnqueueMainThread(() => UploadMesh(triArray));
             })
             {
                 IsBackground = true

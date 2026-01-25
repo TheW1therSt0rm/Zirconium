@@ -72,7 +72,7 @@ namespace RayTracing
             base.OnRenderFrame(args);
 
             // If unfocused you might still want to render; keep it on for now.
-            Engine.PumpMainThreadActions();
+            ThreadManager.PumpMainThreadActions();
             Engine.Render();
             SwapBuffers();
         }

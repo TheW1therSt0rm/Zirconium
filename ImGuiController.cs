@@ -27,7 +27,7 @@ namespace RayTracing
         private int _windowHeight;
         private bool _frameBegun;
 
-        private readonly Dictionary<Keys, ImGuiKey> _keyMap = new();
+        private readonly Dictionary<Keys, ImGuiKey> _keyMap = [];
 
         // Optional: feed text input from your window to this (see method below)
         private readonly Queue<uint> _queuedInput = new();
