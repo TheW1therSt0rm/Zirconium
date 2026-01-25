@@ -28,6 +28,7 @@ C:\Users\marco\OneDrive\Coding\c.cpp.cs\RayTracing\obj\Debug\net8.0\RayTracing.G
 C:\Users\marco\OneDrive\Coding\c.cpp.cs\RayTracing\obj\Debug\net8.0\RayTracing.AssemblyInfoInputs.cache
 C:\Users\marco\OneDrive\Coding\c.cpp.cs\RayTracing\obj\Debug\net8.0\RayTracing.AssemblyInfo.cs
 C:\Users\marco\OneDrive\Coding\c.cpp.cs\RayTracing\obj\Debug\net8.0\RayTracing.csproj.CoreCompileInputs.cache
+C:\Users\marco\OneDrive\Coding\c.cpp.cs\RayTracing\obj\Debug\net8.0\RayTracing.sourcelink.json
 C:\Users\marco\OneDrive\Coding\c.cpp.cs\RayTracing\obj\Debug\net8.0\RayTracing.csproj.Up2Date
 C:\Users\marco\OneDrive\Coding\c.cpp.cs\RayTracing\obj\Debug\net8.0\RayTracing.dll
 C:\Users\marco\OneDrive\Coding\c.cpp.cs\RayTracing\obj\Debug\net8.0\refint\RayTracing.dll

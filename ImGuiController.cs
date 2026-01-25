@@ -193,14 +193,18 @@ namespace RayTracing
             while (_queuedInput.Count > 0)
                 io.AddInputCharacter(_queuedInput.Dequeue());
 
-            // Mouse position in ImGui “display” coordinates.
+            // Mouse position in ImGui "display" coordinates.
             float scaleX = io.DisplayFramebufferScale.X;
             float scaleY = io.DisplayFramebufferScale.Y;
 
             float mouseX = (scaleX != 0f) ? (mouse.X / scaleX) : mouse.X;
             float mouseY = (scaleY != 0f) ? (mouse.Y / scaleY) : mouse.Y;
+            float mouseYWithOffset = mouseY + 40f;
 
-            io.AddMousePosEvent(mouseX, mouseY + 40f);
+            if (mouseX < 0f || mouseYWithOffset < 0f || mouseX > window.Size.X || mouseYWithOffset > window.Size.Y)
+                io.AddMousePosEvent(-float.MaxValue, -float.MaxValue);
+            else
+                io.AddMousePosEvent(mouseX, mouseYWithOffset);
             io.AddMouseButtonEvent(0, mouse.IsButtonDown(MouseButton.Left));
             io.AddMouseButtonEvent(1, mouse.IsButtonDown(MouseButton.Right));
             io.AddMouseButtonEvent(2, mouse.IsButtonDown(MouseButton.Middle));
