@@ -2,9 +2,8 @@
 using System.Text;
 using OpenTK.Mathematics;
 
-namespace RayTracing
+namespace RayTracing.Optimizations
 {
-	// ---- Version 0.1 [13/Sep/2025] ---- 
 	public class BVH
 	{
 		public enum Quality

@@ -1,7 +1,7 @@
 using System.Threading;
 using System.Collections.Concurrent;
 
-namespace RayTracing
+namespace RayTracing.Optimizations
 {
     public static class ThreadManager
     {

@@ -2,8 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using OpenTK.Mathematics;
+using TriangleGPU = RayTracing.Main.Engine.TriangleGPU;
 
-namespace RayTracing
+namespace RayTracing.Optimizations
 {
     [StructLayout(LayoutKind.Sequential)]
     public struct BVHNodeGPU
@@ -11,17 +12,6 @@ namespace RayTracing
         public Vector4 BMin;   // xyz min
         public Vector4 BMax;   // xyz max
         public Vector4i Meta;  // x=left, y=right, z=firstTri, w=triCount (w>0 => leaf)
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct TriangleGPU
-    {
-        public Vector4 V0;
-        public Vector4 V1;
-        public Vector4 V2;
-        public Vector4 ColSmo; // xyz albedo, w smoothness
-        public Vector4 EmiEmi; // xyz emission, w emissionStrength
-        public Vector4 A;
     }
 
     public static class BVHBuilder

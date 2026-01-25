@@ -4,8 +4,9 @@ using OpenTK.Mathematics;
 using OpenTK.Windowing.Common;
 using OpenTK.Windowing.Desktop;
 using OpenTK.Windowing.GraphicsLibraryFramework;
+using ThreadManager = RayTracing.Optimizations.ThreadManager;
 
-namespace RayTracing
+namespace RayTracing.Main
 {
     public sealed class Window : GameWindow
     {

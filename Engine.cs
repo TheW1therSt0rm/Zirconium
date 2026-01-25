@@ -6,12 +6,27 @@ using OpenTK.Mathematics;
 using OpenTK.Windowing.Common;
 using OpenTK.Windowing.GraphicsLibraryFramework;
 using ImGuiNET;
+using RayTracing.Optimizations;
+using RayTracing.OBJ;
+using RayTracing.UI;
+using RayTracing.Types.BluePrints;
 
-namespace RayTracing
+namespace RayTracing.Main
 {
     public sealed class Engine
     {
         private readonly Window _win;
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct TriangleGPU : IGpuType
+        {
+            public Vector4 V0;
+            public Vector4 V1;
+            public Vector4 V2;
+            public Vector4 ColSmo; // xyz albedo, w smoothness
+            public Vector4 EmiEmi; // xyz emission, w emissionStrength
+            public Vector4 A;
+        }
 
         private Shader _rt = null!;
         private Shader _tonemap = null!;
@@ -677,7 +692,7 @@ namespace RayTracing
         // Scene: spheres
         // =========================
         [StructLayout(LayoutKind.Sequential)]
-        private readonly struct SphereCPU(Vector3 pos, float radius, Vector3 albedo, float smooth, Vector3 emission, float emissionStrength, float alpha, float ior = 1.0f, float absorb = 0.0f)
+        public readonly struct SphereGPU(Vector3 pos, float radius, Vector3 albedo, float smooth, Vector3 emission, float emissionStrength, float alpha, float ior = 1.0f, float absorb = 0.0f) : IGpuType
         {
             public readonly Vector4 PosRad = new(pos.X, pos.Y, pos.Z, radius);
             public readonly Vector4 ColSmo = new(albedo.X, albedo.Y, albedo.Z, smooth);
@@ -693,7 +708,7 @@ namespace RayTracing
                 return;
             }
 
-            var spheres = new SphereCPU[]
+            var spheres = new SphereGPU[]
             {
                 new(new Vector3(0,-1001,0), 1000f, new Vector3(0.82f,0.82f,0.82f), 0.02f, Vector3.Zero, 0f, 1f),
                 new(new Vector3(-1.6f,0.7f,4.0f), 0.7f, Vector3.One, 1.0f, Vector3.Zero, 0f, 1f),
@@ -702,7 +717,7 @@ namespace RayTracing
                 new(new Vector3(3f,12f,7f), 3.0f, Vector3.Zero, 0.0f, Vector3.One, 1f)*/
             };
 
-            int sphereCpuSize = Marshal.SizeOf<SphereCPU>();
+            int sphereGpuSize = Marshal.SizeOf<SphereGPU>();
 
             _numSpheres = spheres.Length;
 
@@ -710,7 +725,7 @@ namespace RayTracing
             // Upload to SSBOs
             GL.BindBuffer(BufferTarget.ShaderStorageBuffer, _spheresSSbo);
             GL.BufferData(BufferTarget.ShaderStorageBuffer,
-                _numSpheres * sphereCpuSize,
+                _numSpheres * sphereGpuSize,
                 spheres,
                 BufferUsageHint.StaticDraw);
 
@@ -718,7 +733,7 @@ namespace RayTracing
         }
 
         [StructLayout(LayoutKind.Sequential)]
-        private readonly struct CubeGPU(Vector3 position, Vector3 size, Vector3 albedo, float smoothness, Vector3 emission, float emissionStrength, float alpha, float ior = 1.0f, float absorb = 0.0f)
+        public readonly struct CubeGPU(Vector3 position, Vector3 size, Vector3 albedo, float smoothness, Vector3 emission, float emissionStrength, float alpha, float ior = 1.0f, float absorb = 0.0f) : IGpuType
         {
             public readonly Vector4 Pos = new(position.X, position.Y, position.Z, 0f);
             public readonly Vector4 Scale = new(size.X, size.Y, size.Z, 0f);

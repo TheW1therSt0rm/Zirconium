@@ -3,8 +3,9 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using OpenTK.Mathematics;
+using TriangleGPU = RayTracing.Main.Engine.TriangleGPU;
 
-namespace RayTracing
+namespace RayTracing.OBJ
 {
     internal static class ObjLoader
     {

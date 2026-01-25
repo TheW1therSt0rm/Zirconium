@@ -4,7 +4,7 @@ using System.IO;
 using OpenTK.Graphics.OpenGL4;
 using OpenTK.Mathematics;
 
-namespace RayTracing
+namespace RayTracing.Main
 {
     public sealed class Shader : IDisposable
     {
