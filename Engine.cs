@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using OpenTK.Graphics.OpenGL4;
 using OpenTK.Mathematics;
@@ -219,6 +220,15 @@ namespace RayTracing.Main
             ResetAccumulation();
         }
 
+        static Vector2 ParseVec2(string line)
+        {
+            var sp = line.Split([' ', '=', ',', '\t'], StringSplitOptions.RemoveEmptyEntries);
+            if (sp.Length < 2) throw new FormatException("Need at least 2 numbers");
+            float x = float.Parse(sp[1], NumberStyles.Float, CultureInfo.InvariantCulture);
+            float y = float.Parse(sp[2], NumberStyles.Float, CultureInfo.InvariantCulture);
+            return new Vector2(x, y);
+        }
+
         public void Update()
         {
             float now = (float)clock.Elapsed.TotalSeconds;
@@ -229,8 +239,6 @@ namespace RayTracing.Main
             if (_imgui != null)
             {
                 _imgui.Update(_win, _imguiDelta);
-                if (_imgui.WantsMouseCapture && !_win.MouseCaptured)
-                    _win.SetMouseCapture(false);
             }
 
             if (_win.KeyboardState.IsKeyDown(Keys.F11))
@@ -361,6 +369,8 @@ namespace RayTracing.Main
                 ImGui.End();
 
                 ImGui.Begin("Viewport");
+                var hovered = ImGui.IsWindowHovered(ImGuiHoveredFlags.AllowWhenBlockedByActiveItem);
+                var clicked = ImGui.IsWindowFocused() && ImGui.IsMouseClicked(ImGuiMouseButton.Left);
 
                 var avail = ImGui.GetContentRegionAvail();
                 if (avail.X > 0 && avail.Y > 0)
@@ -374,6 +384,9 @@ namespace RayTracing.Main
 
                 ImGui.End();
                 _needsReset = camPos != _camPos || pitch != _pitch || yaw != _yaw;
+
+                if (hovered && clicked && !_win.MouseCaptured)
+                    _win.SetMouseCapture(true);
 
                 _imgui.Render();
             }
