@@ -105,7 +105,8 @@ namespace RayTracing.Main
         private int _renderScale = 1;
 
         private readonly int _mainThreadId;
-        private readonly ConcurrentQueue<Action> _mainThreadActions = new();
+
+        public List<string> consoleLines = [];
 
         public Engine(Window win)
         {
@@ -127,6 +128,8 @@ namespace RayTracing.Main
             ThreadManager.Add(threadStarter7, "UploadSpheres");
             ThreadStart threadStarter8 = new(UploadCubes);
             ThreadManager.Add(threadStarter8, "UploadCubes");
+            consoleLines.Add("This a test");
+            consoleLines.Add("to see if the console will work");
         }
 
         private bool IsMainThread => Environment.CurrentManagedThreadId == _mainThreadId;
@@ -354,18 +357,35 @@ namespace RayTracing.Main
                 float pitch = _pitch;
                 float yaw = _yaw;
                 ImGui.Begin("Render");
+                ImGui.BeginChild("Render Info");
                 ImGui.Text($"FPS: {1f / dt}");
                 ImGui.Text($"FMS: {1000f * dt}");
                 ImGui.Text($"Frame: {_frame}");
+                ImGui.EndChild();
+                ImGui.BeginChild("Render Settings");
                 ImGui.Checkbox("Accumulation", ref _accumalation);
+                ImGui.EndChild();
                 ImGui.End();
-                
+
                 ImGui.Begin("Camera");
                 ImGui.DragFloat("X", ref _camPos.X, 0.01f);
                 ImGui.DragFloat("Y", ref _camPos.Y, 0.01f);
                 ImGui.DragFloat("Z", ref _camPos.Z, 0.01f);
                 ImGui.DragFloat("yaw", ref _yaw, 0.01f);
                 ImGui.DragFloat("pitch", ref _pitch, 0.01f, -89.999f, 89.999f);
+                ImGui.End();
+
+                ImGui.Begin("OpenGL Settings");
+                ImGui.Text($"GL Vendor  : {GL.GetString(StringName.Vendor)}");
+                ImGui.Text($"GL Renderer: {GL.GetString(StringName.Renderer)}");
+                ImGui.Text($"GL Version : {GL.GetString(StringName.Version)}");
+                ImGui.End();
+
+                ImGui.Begin("Console");
+                foreach (string line in consoleLines)
+                {
+                    ImGui.Text(line);
+                }
                 ImGui.End();
 
                 ImGui.Begin("Viewport");
