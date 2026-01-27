@@ -102,11 +102,13 @@ namespace RayTracing.Main
         private int _renderScale = 1;
 
         private readonly int _mainThreadId;
+        private Vector3 lastFWD;
+        private int frameCount;
 
         public List<(int flag, string line)> consoleLines = [];
-        public void CommentLog(string Comment) => consoleLines.Add((0, Comment));
-        public void WarningLog(string Warning) => consoleLines.Add((1, Warning));
-        public void ErrorLog(string Error) => consoleLines.Add((2, Error));
+        public void CommentLog(string Comment) { if (frameCount >= 0) { return; } consoleLines.Add((0, Comment));}
+        public void WarningLog(string Warning) { if (frameCount >= 0) { return; } consoleLines.Add((1, Warning));}
+        public void ErrorLog(string Error) { if (frameCount >= 0) { return; } consoleLines.Add((2, Error));}
 
         public Engine(Window win)
         {
@@ -227,8 +229,16 @@ namespace RayTracing.Main
 
         public void Update()
         {
+            frameCount++;
             float now = (float)clock.Elapsed.TotalSeconds;
             dt = now - oldTime;
+            if (dt == 0f)
+                frameCount = 0;
+            else
+            {
+                int div = (int)MathF.Floor(1f / dt);
+                frameCount %= div == 0f ? 1 : div;
+            }
             oldTime = now;
             _imguiDelta = dt;
 
@@ -283,7 +293,11 @@ namespace RayTracing.Main
                 consoleLines.Add((0, $"dx: {wish.X} dy: {wish.Y} dz: {wish.Z}"));
                 _needsReset = true;
             }
-            consoleLines.Add((0, $"forward: x: {fwd.X} y: {fwd.Y} z: {fwd.Z}"));
+            if (lastFWD != fwd)
+            {
+                consoleLines.Add((0, $"forward: x: {fwd.X} y: {fwd.Y} z: {fwd.Z}"));
+                lastFWD = fwd;
+            }
         }
 
         public void Render()
