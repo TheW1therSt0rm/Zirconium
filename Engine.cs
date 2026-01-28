@@ -102,13 +102,47 @@ namespace RayTracing.Main
         private int _renderScale = 1;
 
         private readonly int _mainThreadId;
-        private Vector3 lastFWD;
-        private int frameCount;
 
-        public List<(int flag, string line)> consoleLines = [];
-        public void CommentLog(string Comment) { consoleLines.Add((0, Comment)); }
-        public void WarningLog(string Warning) { consoleLines.Add((1, Warning)); }
-        public void ErrorLog(string Error) { consoleLines.Add((2, Error)); }
+        private enum ConsoleType
+        {
+            Log,
+            Warning,
+            Error
+        }
+
+        private struct ConsoleEntry
+        {
+            public ConsoleType Type;
+            public string Message;
+            public int Count;
+            public DateTime Time;
+        }
+
+        private readonly List<ConsoleEntry> _consoleEntries = [];
+        private bool _consoleCollapse = true;
+        private bool _consoleAutoScroll = true;
+        private bool _consoleShowLog = true;
+        private bool _consoleShowWarning = true;
+        private bool _consoleShowError = true;
+        private string _consoleFilter = string.Empty;
+
+        public void CommentLog(string comment) => AddConsoleEntry(ConsoleType.Log, comment);
+        public void WarningLog(string warning) => AddConsoleEntry(ConsoleType.Warning, warning);
+        public void ErrorLog(string error) => AddConsoleEntry(ConsoleType.Error, error);
+
+        private void AddConsoleEntry(ConsoleType type, string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+                return;
+
+            _consoleEntries.Add(new ConsoleEntry
+            {
+                Type = type,
+                Message = message,
+                Count = 1,
+                Time = DateTime.Now
+            });
+        }
 
         public Engine(Window win)
         {
@@ -133,6 +167,8 @@ namespace RayTracing.Main
             CommentLog($"GL Vendor  : {GL.GetString(StringName.Vendor)}");
             CommentLog($"GL Renderer: {GL.GetString(StringName.Renderer)}");
             CommentLog($"GL Version : {GL.GetString(StringName.Version)}");
+            CommentLog("Test");
+            CommentLog("Test");
         }
 
         private bool IsMainThread => Environment.CurrentManagedThreadId == _mainThreadId;
@@ -282,13 +318,7 @@ namespace RayTracing.Main
             {
                 wish = wish.Normalized() * speed * dt;
                 _camPos += wish;
-                CommentLog($"dx: {wish.X} dy: {wish.Y} dz: {wish.Z}");
                 _needsReset = true;
-            }
-            if (lastFWD != fwd)
-            {
-                CommentLog($"forward: x: {fwd.X} y: {fwd.Y} z: {fwd.Z}");
-                lastFWD = fwd;
             }
         }
 
@@ -378,34 +408,118 @@ namespace RayTracing.Main
                 ImGui.End();
 
                 ImGui.Begin("Console");
-                foreach ((int flag, string line) currentLine in consoleLines)
+
+                if (ImGui.Button("Clear"))
+                    _consoleEntries.Clear();
+
+                ImGui.SameLine();
+                ImGui.Checkbox("Collapse", ref _consoleCollapse);
+                ImGui.SameLine();
+                ImGui.Checkbox("Auto-scroll", ref _consoleAutoScroll);
+                ImGui.SameLine();
+                ImGui.SetNextItemWidth(220f);
+                ImGui.InputText("Search", ref _consoleFilter, 256);
+
+                int logCount = 0;
+                int warnCount = 0;
+                int errorCount = 0;
+                for (int i = 0; i < _consoleEntries.Count; i++)
                 {
-                    string type;
-                    switch (currentLine.flag)
+                    switch (_consoleEntries[i].Type)
                     {
-                        default:
-                            type = "";
+                        case ConsoleType.Log:
+                            logCount++;
                             break;
-                        case 0:
-                            type = "✉ Debug: ";
+                        case ConsoleType.Warning:
+                            warnCount++;
                             break;
-                        case 1:
-                            type = "⚠ Warning: ";
-                            break;
-                        case 2:
-                            type = "⛔ Error: ";
+                        case ConsoleType.Error:
+                            errorCount++;
                             break;
                     }
-                    ImGui.Text(type + currentLine.line);
-                    // read scroll
-                    float scrollY = ImGui.GetScrollY();
-                    float maxScrollY = ImGui.GetScrollMaxY();
-                    bool atBottom = scrollY >= maxScrollY - 1f;
-
-                    // set scroll (example: jump to bottom)
-                    if (atBottom == false)
-                        ImGui.SetScrollY(maxScrollY); // or ImGui.SetScrollHereY(1f);
                 }
+
+                ImGui.SameLine();
+                ImGui.Text("|");
+                ImGui.SameLine();
+                ImGui.Checkbox($"Log ({logCount})", ref _consoleShowLog);
+                ImGui.SameLine();
+                ImGui.Checkbox($"Warning ({warnCount})", ref _consoleShowWarning);
+                ImGui.SameLine();
+                ImGui.Checkbox($"Error ({errorCount})", ref _consoleShowError);
+
+                ImGui.BeginChild("ConsoleList", new System.Numerics.Vector2(0, 0), ImGuiChildFlags.Borders, ImGuiWindowFlags.HorizontalScrollbar);
+
+                float scrollY = ImGui.GetScrollY();
+                float maxScrollY = ImGui.GetScrollMaxY();
+                bool atBottom = scrollY >= maxScrollY - 1f;
+
+                System.Numerics.Vector4 logColor = new(0.85f, 0.85f, 0.85f, 1f);
+                System.Numerics.Vector4 warnColor = new(1f, 0.8f, 0.2f, 1f);
+                System.Numerics.Vector4 errorColor = new(1f, 0.35f, 0.35f, 1f);
+
+                var viewEntries = _consoleEntries;
+                if (_consoleCollapse && _consoleEntries.Count > 1)
+                {
+                    viewEntries = new List<ConsoleEntry>(_consoleEntries.Count);
+                    ConsoleEntry last = _consoleEntries[0];
+                    viewEntries.Add(last);
+                    for (int i = 1; i < _consoleEntries.Count; i++)
+                    {
+                        var cur = _consoleEntries[i];
+                        if (cur.Type == last.Type && cur.Message == last.Message)
+                        {
+                            last.Count += cur.Count;
+                            viewEntries[^1] = last;
+                        }
+                        else
+                        {
+                            last = cur;
+                            viewEntries.Add(last);
+                        }
+                    }
+                }
+
+                string filter = _consoleFilter;
+                bool hasFilter = !string.IsNullOrWhiteSpace(filter);
+                for (int i = 0; i < viewEntries.Count; i++)
+                {
+                    var entry = viewEntries[i];
+                    if (entry.Type == ConsoleType.Log && !_consoleShowLog) continue;
+                    if (entry.Type == ConsoleType.Warning && !_consoleShowWarning) continue;
+                    if (entry.Type == ConsoleType.Error && !_consoleShowError) continue;
+                    if (hasFilter && entry.Message.IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0) continue;
+
+                    System.Numerics.Vector4 colour = new();
+                    string typeSuffix = "";
+                    switch (entry.Type)
+                    {
+                        default:
+                            break;
+                        case ConsoleType.Log:
+                            colour = logColor;
+                            typeSuffix = "✉ Debug:";
+                            break;
+                        case ConsoleType.Warning:
+                            colour = warnColor;
+                            typeSuffix = "⚠ Warning:";
+                            break;
+                        case ConsoleType.Error: 
+                            colour = errorColor;
+                            typeSuffix = "⛔ Error:";
+                            break;
+                    }
+
+                    ImGui.PushStyleColor(ImGuiCol.Text, colour);
+                    string countSuffix = entry.Count > 1 ? $"(x{entry.Count})" : string.Empty;
+                    ImGui.TextUnformatted($"{typeSuffix} {entry.Message} {countSuffix}");
+                    ImGui.PopStyleColor();
+                }
+
+                if (_consoleAutoScroll && atBottom)
+                    ImGui.SetScrollHereY(1f);
+
+                ImGui.EndChild();
                 ImGui.End();
 
                 ImGui.Begin("Viewport");
@@ -845,3 +959,4 @@ namespace RayTracing.Main
         }
     }
 }
+
