@@ -4,7 +4,7 @@ using System.IO;
 using OpenTK.Graphics.OpenGL4;
 using OpenTK.Mathematics;
 
-namespace RayTracing.Main
+namespace Zirconium.Main
 {
     public sealed class Shader : IDisposable
     {

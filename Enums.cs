@@ -1,4 +1,4 @@
-namespace RayTracing.Types.Enums
+namespace Zirconium.Types.Enums
 {
     public enum GameObjectType
     {

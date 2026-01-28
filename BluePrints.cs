@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using OpenTK.Mathematics;
 
-namespace RayTracing.Types.BluePrints
+namespace Zirconium.Types.BluePrints
 {
     public interface IGpuType {}
 }

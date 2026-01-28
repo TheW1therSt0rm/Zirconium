@@ -1,7 +1,7 @@
 using System.Threading;
 using System.Collections.Concurrent;
 
-namespace RayTracing.Optimizations
+namespace Zirconium.Optimizations
 {
     public static class ThreadManager
     {

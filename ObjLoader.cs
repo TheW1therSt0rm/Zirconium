@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using OpenTK.Mathematics;
-using TriangleGPU = RayTracing.Main.Engine.TriangleGPU;
+using TriangleGPU = Zirconium.Main.Engine.TriangleGPU;
 
-namespace RayTracing.OBJ
+namespace Zirconium.OBJ
 {
     internal static class ObjLoader
     {

@@ -2,9 +2,9 @@
 using OpenTK.Mathematics;
 using OpenTK.Windowing.Common;
 using OpenTK.Windowing.Desktop;
-using RayTracing.Main;
+using Zirconium.Main;
 
-namespace RayTracing
+namespace Zirconium
 {
     internal static class Program
     {
@@ -18,7 +18,7 @@ namespace RayTracing
             var nws = new NativeWindowSettings
             {
                 ClientSize = new Vector2i(1280, 720),
-                Title = "RayTracing",
+                Title = "Zirconium",
                 API = ContextAPI.OpenGL,
                 APIVersion = new Version(4, 3),
                 Profile = ContextProfile.Core,

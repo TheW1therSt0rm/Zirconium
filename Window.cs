@@ -4,9 +4,9 @@ using OpenTK.Mathematics;
 using OpenTK.Windowing.Common;
 using OpenTK.Windowing.Desktop;
 using OpenTK.Windowing.GraphicsLibraryFramework;
-using ThreadManager = RayTracing.Optimizations.ThreadManager;
+using ThreadManager = Zirconium.Optimizations.ThreadManager;
 
-namespace RayTracing.Main
+namespace Zirconium.Main
 {
     public sealed class Window : GameWindow
     {

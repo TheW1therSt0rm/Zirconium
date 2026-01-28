@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using OpenTK.Mathematics;
-using TriangleGPU = RayTracing.Main.Engine.TriangleGPU;
+using TriangleGPU = Zirconium.Main.Engine.TriangleGPU;
 
-namespace RayTracing.Optimizations
+namespace Zirconium.Optimizations
 {
     [StructLayout(LayoutKind.Sequential)]
     public struct BVHNodeGPU

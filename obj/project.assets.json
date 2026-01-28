@@ -588,11 +588,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\marco\\OneDrive\\Coding\\c.cpp.cs\\RayTracing\\RayTracing.csproj",
-      "projectName": "RayTracing",
-      "projectPath": "C:\\Users\\marco\\OneDrive\\Coding\\c.cpp.cs\\RayTracing\\RayTracing.csproj",
+      "projectUniqueName": "C:\\Users\\marco\\OneDrive\\Coding\\c.cpp.cs\\Zirconium\\Zirconium.csproj",
+      "projectName": "Zirconium",
+      "projectPath": "C:\\Users\\marco\\OneDrive\\Coding\\c.cpp.cs\\Zirconium\\Zirconium.csproj",
       "packagesPath": "C:\\Users\\marco\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\marco\\OneDrive\\Coding\\c.cpp.cs\\RayTracing\\obj\\",
+      "outputPath": "C:\\Users\\marco\\OneDrive\\Coding\\c.cpp.cs\\Zirconium\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "C:\\Users\\marco\\AppData\\Roaming\\NuGet\\NuGet.Config"

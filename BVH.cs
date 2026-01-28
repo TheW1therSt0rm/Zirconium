@@ -2,7 +2,7 @@
 using System.Text;
 using OpenTK.Mathematics;
 
-namespace RayTracing.Optimizations
+namespace Zirconium.Optimizations
 {
 	public class BVH
 	{

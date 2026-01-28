@@ -8,7 +8,7 @@ using OpenTK.Windowing.Desktop;
 using OpenTK.Windowing.GraphicsLibraryFramework;
 using Vector2 = System.Numerics.Vector2;
 
-namespace RayTracing.UI
+namespace Zirconium.UI
 {
     internal sealed class ImGuiController : IDisposable
     {

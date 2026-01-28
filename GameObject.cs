@@ -1,13 +1,13 @@
-using RayTracing.Optimizations;
-using RayTracing.OBJ;
-using RayTracing.Types.Enums;
-using RayTracing.Types.BluePrints;
+using Zirconium.Optimizations;
+using Zirconium.OBJ;
+using Zirconium.Types.Enums;
+using Zirconium.Types.BluePrints;
 using OpenTK.Mathematics;
-using CubeGPU = RayTracing.Main.Engine.CubeGPU;
-using SphereGPU = RayTracing.Main.Engine.SphereGPU;
-using TriangleGPU = RayTracing.Main.Engine.TriangleGPU;
+using CubeGPU = Zirconium.Main.Engine.CubeGPU;
+using SphereGPU = Zirconium.Main.Engine.SphereGPU;
+using TriangleGPU = Zirconium.Main.Engine.TriangleGPU;
 
-namespace RayTracing.Engine
+namespace Zirconium.Engine
 {
     public class GameObject
     {

@@ -7,12 +7,12 @@ using OpenTK.Mathematics;
 using OpenTK.Windowing.Common;
 using OpenTK.Windowing.GraphicsLibraryFramework;
 using ImGuiNET;
-using RayTracing.Optimizations;
-using RayTracing.OBJ;
-using RayTracing.UI;
-using RayTracing.Types.BluePrints;
+using Zirconium.Optimizations;
+using Zirconium.OBJ;
+using Zirconium.UI;
+using Zirconium.Types.BluePrints;
 
-namespace RayTracing.Main
+namespace Zirconium.Main
 {
     public sealed class Engine
     {

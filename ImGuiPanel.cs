@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 
-namespace RayTracing.UI
+namespace Zirconium.UI
 {
     internal static class ImGuiPanel
     {
