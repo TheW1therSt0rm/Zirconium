@@ -128,6 +128,23 @@ namespace Zirconium.Main
         private bool _consoleShowError = true;
         private string _consoleFilter = string.Empty;
 
+        private readonly List<AssetEntry> _assets = [];
+        private string _assetsRoot = ".";
+        private string _assetsFilter = string.Empty;
+        private bool _assetsShowAll = false;
+        private int _selectedAssetIndex = -1;
+        private bool _showAssetLoadSettings = false;
+        private Vector3 _assetLoadPos = new(0f, 2f, 8f);
+        private Vector3 _assetLoadSize = Vector3.One;
+        private Vector3 _assetLoadRot = Vector3.Zero;
+        private Vector3 _assetLoadColor = new(0.7f, 0.7f, 0.7f);
+        private float _assetLoadSmoothness = 0.5f;
+        private Vector3 _assetLoadEmission = Vector3.Zero;
+        private float _assetLoadEmissionStrength = 0f;
+        private float _assetLoadAlpha = 1f;
+
+        private readonly record struct AssetEntry(string Name, string Path, string Ext, long Size);
+
         public void CommentLog(string comment) => AddConsoleEntry(ConsoleType.Log, comment);
         public void WarningLog(string warning) => AddConsoleEntry(ConsoleType.Warning, warning);
         public void ErrorLog(string error) => AddConsoleEntry(ConsoleType.Error, error);
@@ -216,9 +233,11 @@ namespace Zirconium.Main
             UploadSpheres();
             UploadCubes();
 
-            ContstructMeshAsync("Pawn.obj", new(2f, 3f, 5f), Vector3.One, Vector3.Zero, new(0.5f, 0.25f, 0.6f), 0.25f, Vector3.Zero, 0f);
-            ContstructMeshAsync("Monkey.obj", new(-3f, 2f, 10f), Vector3.One, Vector3.Zero, new(0.25f, 0.6f, 0.5f), 0.9f, Vector3.Zero, 0f);
-            ContstructMeshAsync("Dragon.obj", new(2f, 6f, 10f), Vector3.One * 2f, Vector3.Zero, new(0.6f, 0.5f, 0.25f), 1.0f, Vector3.Zero, 0f);
+            ContstructMeshAsync("Assets/Pawn.obj", new(2f, 3f, 5f), Vector3.One, Vector3.Zero, new(0.5f, 0.25f, 0.6f), 0.25f, Vector3.Zero, 0f);
+            ContstructMeshAsync("Assets/Monkey.obj", new(-3f, 2f, 10f), Vector3.One, Vector3.Zero, new(0.25f, 0.6f, 0.5f), 0.9f, Vector3.Zero, 0f);
+            ContstructMeshAsync("Assets/Dragon.obj", new(2f, 6f, 10f), Vector3.One * 2f, Vector3.Zero, new(0.6f, 0.5f, 0.25f), 1.0f, Vector3.Zero, 0f);
+
+            RefreshAssets();
 
             Resize(_win.Size.X, _win.Size.Y);
             _needsReset = true;
@@ -562,6 +581,130 @@ namespace Zirconium.Main
                 }
 
                 ImGui.End();
+
+                ImGui.Begin("Assets");
+                ImGui.Text("Root");
+                ImGui.SameLine();
+                ImGui.SetNextItemWidth(220f);
+                ImGui.InputText("##assets-root", ref _assetsRoot, 512);
+                ImGui.SameLine();
+                if (ImGui.Button("Refresh"))
+                    RefreshAssets();
+                ImGui.SameLine();
+                ImGui.Checkbox("Show all", ref _assetsShowAll);
+
+                ImGui.SetNextItemWidth(220f);
+                ImGui.InputText("Filter", ref _assetsFilter, 128);
+
+                if (_assets.Count == 0)
+                {
+                    ImGui.TextDisabled("No assets found.");
+                }
+                else
+                {
+                    const ImGuiTableFlags tableFlags =
+                        ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInner | ImGuiTableFlags.ScrollY;
+
+                    var listHeight = MathF.Max(140f, ImGui.GetContentRegionAvail().Y - 60f);
+                    if (ImGui.BeginTable("AssetsTable", 3, tableFlags, new System.Numerics.Vector2(0, listHeight)))
+                    {
+                        ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthStretch);
+                        ImGui.TableSetupColumn("Type", ImGuiTableColumnFlags.WidthFixed, 60f);
+                        ImGui.TableSetupColumn("Size", ImGuiTableColumnFlags.WidthFixed, 80f);
+                        ImGui.TableHeadersRow();
+
+                        string filterA = _assetsFilter.Trim();
+                        bool hasFilterA = filter.Length > 0;
+
+                        for (int i = 0; i < _assets.Count; i++)
+                        {
+                            var asset = _assets[i];
+                            if (hasFilterA && asset.Name.IndexOf(filterA, StringComparison.OrdinalIgnoreCase) < 0)
+                                continue;
+
+                            ImGui.TableNextRow();
+                            ImGui.TableNextColumn();
+                            bool selected = _selectedAssetIndex == i;
+                            if (ImGui.Selectable(asset.Name, selected, ImGuiSelectableFlags.SpanAllColumns))
+                                _selectedAssetIndex = i;
+
+                            ImGui.TableNextColumn();
+                            ImGui.TextUnformatted(asset.Ext);
+
+                            ImGui.TableNextColumn();
+                            ImGui.TextUnformatted(FormatBytes(asset.Size));
+                        }
+
+                        ImGui.EndTable();
+                    }
+                }
+
+                if (_selectedAssetIndex >= 0 && _selectedAssetIndex < _assets.Count)
+                {
+                    var asset = _assets[_selectedAssetIndex];
+                    ImGui.Separator();
+                    ImGui.TextUnformatted(asset.Path);
+                    if (asset.Ext.Equals(".obj", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (ImGui.Button("Load mesh"))
+                        {
+                            ContstructMeshAsync(asset.Path,
+                                _assetLoadPos,
+                                _assetLoadSize,
+                                _assetLoadRot,
+                                _assetLoadColor,
+                                _assetLoadSmoothness,
+                                _assetLoadEmission,
+                                _assetLoadEmissionStrength,
+                                _assetLoadAlpha);
+                        }
+                        ImGui.SameLine();
+                        ImGui.Checkbox("Settings", ref _showAssetLoadSettings);
+
+                        if (_showAssetLoadSettings)
+                        {
+                            ImGui.SeparatorText("Load settings");
+
+                            var pos = new System.Numerics.Vector3(_assetLoadPos.X, _assetLoadPos.Y, _assetLoadPos.Z);
+                            if (ImGui.DragFloat3("Position", ref pos, 0.1f))
+                                _assetLoadPos = new Vector3(pos.X, pos.Y, pos.Z);
+
+                            var size = new System.Numerics.Vector3(_assetLoadSize.X, _assetLoadSize.Y, _assetLoadSize.Z);
+                            if (ImGui.DragFloat3("Size", ref size, 0.05f))
+                                _assetLoadSize = new Vector3(size.X, size.Y, size.Z);
+
+                            var rot = new System.Numerics.Vector3(_assetLoadRot.X, _assetLoadRot.Y, _assetLoadRot.Z);
+                            if (ImGui.DragFloat3("Rotation", ref rot, 0.5f))
+                                _assetLoadRot = new Vector3(rot.X, rot.Y, rot.Z);
+
+                            var color = new System.Numerics.Vector3(_assetLoadColor.X, _assetLoadColor.Y, _assetLoadColor.Z);
+                            if (ImGui.ColorEdit3("Color", ref color))
+                                _assetLoadColor = new Vector3(color.X, color.Y, color.Z);
+
+                            ImGui.DragFloat("Smoothness", ref _assetLoadSmoothness, 0.01f, 0f, 1f);
+                            ImGui.DragFloat("Emission Strength", ref _assetLoadEmissionStrength, 0.1f, 0f, 100f);
+                            ImGui.DragFloat("Alpha", ref _assetLoadAlpha, 0.01f, 0f, 1f);
+
+                            var emission = new System.Numerics.Vector3(_assetLoadEmission.X, _assetLoadEmission.Y, _assetLoadEmission.Z);
+                            if (ImGui.ColorEdit3("Emission", ref emission))
+                                _assetLoadEmission = new Vector3(emission.X, emission.Y, emission.Z);
+
+                            if (ImGui.Button("Reset defaults"))
+                            {
+                                _assetLoadPos = new Vector3(0f, 2f, 8f);
+                                _assetLoadSize = Vector3.One;
+                                _assetLoadRot = Vector3.Zero;
+                                _assetLoadColor = new Vector3(0.7f, 0.7f, 0.7f);
+                                _assetLoadSmoothness = 0.5f;
+                                _assetLoadEmission = Vector3.Zero;
+                                _assetLoadEmissionStrength = 0f;
+                                _assetLoadAlpha = 1f;
+                            }
+                        }
+                    }
+                }
+
+                ImGui.End();
                 _needsReset = camPos != _camPos || pitch != _pitch || yaw != _yaw;
 
                 if (hovered && clicked && !_win.MouseCaptured)
@@ -852,6 +995,67 @@ namespace Zirconium.Main
         private static int ChooseIntegerScale(int height, int targetHeight)
         {
             return Math.Max(1, (int)MathF.Floor(height / (float)targetHeight));
+        }
+
+        private void RefreshAssets()
+        {
+            _assets.Clear();
+            _selectedAssetIndex = -1;
+
+            if (string.IsNullOrWhiteSpace(_assetsRoot))
+                return;
+
+            try
+            {
+                foreach (string file in Directory.EnumerateFiles(_assetsRoot))
+                {
+                    string ext = Path.GetExtension(file);
+                    if (!_assetsShowAll && !IsAssetExtension(ext))
+                        continue;
+
+                    string name = Path.GetFileName(file);
+                    long size = 0;
+                    try
+                    {
+                        size = new FileInfo(file).Length;
+                    }
+                    catch
+                    {
+                        size = 0;
+                    }
+
+                    _assets.Add(new AssetEntry(name, file, ext, size));
+                }
+            }
+            catch (Exception ex)
+            {
+                WarningLog($"Assets scan failed: {ex.Message}");
+            }
+
+            _assets.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool IsAssetExtension(string ext)
+        {
+            return ext.Equals(".obj", StringComparison.OrdinalIgnoreCase)
+                || ext.Equals(".mtl", StringComparison.OrdinalIgnoreCase)
+                || ext.Equals(".png", StringComparison.OrdinalIgnoreCase)
+                || ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
+                || ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)
+                || ext.Equals(".hdr", StringComparison.OrdinalIgnoreCase)
+                || ext.Equals(".exr", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string FormatBytes(long bytes)
+        {
+            const long kb = 1024;
+            const long mb = 1024 * kb;
+            const long gb = 1024 * mb;
+
+            if (bytes >= gb) return $"{bytes / (double)gb:0.0} GB";
+            if (bytes >= mb) return $"{bytes / (double)mb:0.0} MB";
+            if (bytes >= kb) return $"{bytes / (double)kb:0.0} KB";
+            return $"{bytes} B";
         }
 
         private static void GetBasis(float yawDeg, float pitchDeg, out Vector3 forward, out Vector3 right, out Vector3 up)
