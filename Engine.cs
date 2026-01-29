@@ -56,7 +56,6 @@ namespace Zirconium.Main
         private int _numCubes;
         private int _numTris;
         private int _numBvhNodes;
-        private int lastMode = 0;
         private int mode = 0;
 
         private float oldTime = 0f;
@@ -330,12 +329,21 @@ namespace Zirconium.Main
             if (_needsReset) ResetAccumulation();
             GL.Clear(ClearBufferMask.ColorBufferBit);
 
-            int w = _renderWidth;
-            int h = _renderHeight;
             int outW = _win.Size.X;
             int outH = _win.Size.Y;
-            if (mode == 1) { w = outW; h = outH; TargetRenderHeight = outH; }
-            else if (mode == 0) { TargetRenderHeight = TargetRenderHeightNonH; }
+            int desiredTargetHeight = mode == 1 ? outH : TargetRenderHeightNonH;
+            if (desiredTargetHeight < 1) desiredTargetHeight = 1;
+            TargetRenderHeight = desiredTargetHeight;
+
+            int desiredScale = ChooseIntegerScale(outH, desiredTargetHeight);
+            int desiredRenderW = Math.Max(1, outW / desiredScale);
+            int desiredRenderH = Math.Max(1, outH / desiredScale);
+
+            if (_renderScale != desiredScale || _renderWidth != desiredRenderW || _renderHeight != desiredRenderH)
+                Resize(outW, outH);
+
+            int w = _renderWidth;
+            int h = _renderHeight;
 
             UpdateBasisIfNeeded();
             var fwd = _camForward;
@@ -390,8 +398,8 @@ namespace Zirconium.Main
 
             if (_imgui != null && _imgui.FrameBegun)
             {
-                int lastTargetHeight = TargetRenderHeight;
-                lastMode = mode;
+                int lastTargetHeight = TargetRenderHeightNonH;
+                int lastMode = mode;
                 Vector3 camPos = _camPos;
                 float pitch = _pitch;
                 float yaw = _yaw;
@@ -401,14 +409,19 @@ namespace Zirconium.Main
                 ImGui.Text($"Frame: {_frame}");
                 ImGui.Checkbox("Accumulation", ref _accumalation);
                 ImGui.DragInt("Downscale Mode", ref mode, 1f, 0, 1);
-                ImGui.Text("Only maters if downscale is 0");
-                ImGui.DragInt("Target height", ref TargetRenderHeight, 1f);
-                if (lastTargetHeight != TargetRenderHeight)
+                ImGui.Text("Only matters if downscale is 0");
+                ImGui.BeginDisabled(mode == 1);
+                int uiTargetHeight = TargetRenderHeightNonH;
+                ImGui.DragInt("Target height", ref uiTargetHeight, 1f, 1);
+                ImGui.EndDisabled();
+                if (uiTargetHeight < 1) uiTargetHeight = 1;
+                if (TargetRenderHeightNonH != uiTargetHeight)
                 {
+                    TargetRenderHeightNonH = uiTargetHeight;
                     _needsReset = true;
                 }
-                else if (mode == 1) { _needsReset = true; }
-                else if (mode == 0 && TargetRenderHeight != outH) { _needsReset = true; TargetRenderHeightNonH = TargetRenderHeight;}
+                if (mode != lastMode)
+                    _needsReset = true;
                 ImGui.End();
 
                 ImGui.Begin("Camera");
